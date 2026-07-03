@@ -21,10 +21,10 @@ import (
 // CustomButton is a single user-configured inline button shown under a
 // clone's /start message (max 5 per clone, mirrors the Python schema).
 type CustomButton struct {
-	Text   string `bson:"text"`
-	Url    string `bson:"url"`
-	Inline bool   `bson:"inline"`
-	Style  string `bson:"style"`
+	Text     string `bson:"text"`
+	Url      string `bson:"url"`
+	IsInline bool   `bson:"is_inline"`
+	Style    string `bson:"style"`
 }
 
 // Clone represents a single clone-bot registration.
@@ -46,7 +46,7 @@ type Clone struct {
 	LoggerEnabled bool           `bson:"logger_enabled"`
 	StartImg      string         `bson:"start_img"`
 	CustomButtons []CustomButton `bson:"custom_buttons"`
-	SudoUsers     []int64        `bson:"sudo_users"`
+	SudoUsers     []int64        `bson:"sudo_users,truncate"`
 }
 
 // RegisterClone upserts a clone registration and marks it active.
@@ -282,7 +282,7 @@ func (db *Database) GetCloneChats(botID int64) ([]int64, error) {
 	defer cancel()
 
 	var doc struct {
-		Chats []int64 `bson:"chats"`
+		Chats []int64 `bson:"chats,truncate"`
 	}
 	err := db.cloneDB.FindOne(ctx, bson.M{"_id": botID}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {

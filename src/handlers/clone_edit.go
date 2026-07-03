@@ -298,7 +298,7 @@ func editInputHandler(c *td.Client, m *td.Message) error {
 			_, _ = m.ReplyText(c, "Invalid format. Send: <code>Button Text | https://example.com</code>", &td.SendTextMessageOpts{ParseMode: "HTML"})
 			return td.EndGroups
 		}
-		ok, err := db.Instance.AddCustomButton(c.Me.Id, db.CustomButton{Text: text, Url: url, Inline: true})
+		ok, err := db.Instance.AddCustomButton(c.Me.Id, db.CustomButton{Text: text, Url: url, IsInline: true})
 		setEditState(userID, editStepNone)
 		if err != nil || !ok {
 			_, _ = m.ReplyText(c, "Failed to add button (maximum of 5 reached).", &td.SendTextMessageOpts{ReplyMarkup: editMainMenu()})
