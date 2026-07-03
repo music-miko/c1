@@ -294,17 +294,39 @@ func (c *TelegramCalls) ChangeSpeed(bot *td.Client, chatID int64, speed float64)
 }
 
 // RegisterHandlers sets up the event handlers for the voice call client.
+// Call this ONCE, for the primary client (src.Init already does this) — it
+// does not need to be called again per clone. The OnStreamEnd callback below
+// resolves which bot (main or clone) actually owns the ending stream via the
+// multi-bot assistant pool, so queue auto-advance works correctly no matter
+// which bot was streaming.
 func (c *TelegramCalls) RegisterHandlers(client *td.Client) {
 	c.startAutoLeave(context.Background(), client)
+	SetPrimaryClient(client)
 
-	for _, call := range c.assistants {
+	for idx, call := range c.assistants {
+		idx := idx
 		call.OnStreamEnd(func(chatID int64, streamType ntgcalls.StreamType, device ntgcalls.StreamDevice) {
 			if streamType == ntgcalls.VideoStream {
 				return
 			}
 
-			call.App.Logger.Warnf("[OnStreamEnd] fired: chat=%d device=%v — advancing queue", chatID, device)
-			if err := c.PlayNext(client, chatID); err != nil {
+			pool.mu.Lock()
+			botID, tracked := pool.owner[ownerKey{Index: idx, ChatID: chatID}]
+			pool.mu.Unlock()
+
+			bot := client
+			if tracked {
+				if resolved := resolveClientFor(botID); resolved != nil {
+					bot = resolved
+				} else {
+					botID = client.Me.Id
+				}
+			} else {
+				botID = client.Me.Id
+			}
+
+			call.App.Logger.Warnf("[OnStreamEnd] fired: bot=%d chat=%d device=%v — advancing queue", botID, chatID, device)
+			if err := c.PlayNextFor(botID, bot, chatID); err != nil {
 				call.App.Logger.Warnf("[OnStreamEnd] Failed to play the song: %v", err)
 			}
 		})

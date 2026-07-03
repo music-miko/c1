@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"ashokshau/tgmusic/src/core/db"
 
@@ -133,22 +134,44 @@ func (m *Manager) Count() int {
 
 // RestoreAll re-starts every clone marked active in the database. Call this
 // once at boot, after Init.
+//
+// Clones are started SEQUENTIALLY with a small stagger, not as a burst of
+// concurrent goroutines: every clone shares one underlying TDLib/tdjson
+// instance and one receiver loop (see gotdbot's ClientManager), and hammering
+// it with N simultaneous logins is a real way to get authorization timeouts
+// or throttling from Telegram, which looks exactly like "clones won't start".
 func (m *Manager) RestoreAll() {
 	clones, err := db.Instance.GetAllActiveClones()
 	if err != nil {
 		slog.Error("[clone] failed to load clones from db", "error", err)
 		return
 	}
-
-	for _, cl := range clones {
-		go func(botID int64, token, username string) {
-			if _, err := m.Start(botID, token); err != nil {
-				slog.Error("[clone] failed to restore clone", "bot_id", botID, "username", username, "error", err)
-				_ = db.Instance.DeactivateClone(botID)
-				return
-			}
-		}(cl.ID, cl.Token, cl.Username)
+	if len(clones) == 0 {
+		slog.Info("[clone] no clones to restore")
+		return
 	}
 
 	slog.Info("[clone] restoring clones", "count", len(clones))
+
+	go func() {
+		for _, cl := range clones {
+			func(botID int64, token, username string) {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("[clone] panic while restoring clone — deactivated", "bot_id", botID, "username", username, "panic", r)
+						_ = db.Instance.DeactivateClone(botID)
+					}
+				}()
+
+				if _, err := m.Start(botID, token); err != nil {
+					slog.Error("[clone] failed to restore clone — deactivated", "bot_id", botID, "username", username, "error", err)
+					_ = db.Instance.DeactivateClone(botID)
+					return
+				}
+				slog.Info("[clone] restored", "bot_id", botID, "username", username)
+			}(cl.ID, cl.Token, cl.Username)
+
+			time.Sleep(2 * time.Second)
+		}
+	}()
 }

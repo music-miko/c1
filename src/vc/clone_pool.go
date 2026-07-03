@@ -35,12 +35,36 @@ import (
 	"strings"
 	"sync"
 
+	"ashokshau/tgmusic/src/clone"
 	"ashokshau/tgmusic/src/core"
 	"ashokshau/tgmusic/src/core/cache"
 	"ashokshau/tgmusic/src/utils"
 
 	td "github.com/AshokShau/gotdbot"
 )
+
+var primaryClient *td.Client
+
+// SetPrimaryClient records the main bot's client so bot-aware helpers (like
+// the OnStreamEnd auto-advance callback registered once in RegisterHandlers)
+// can resolve a *td.Client back from a botID. Call this once from main.go.
+func SetPrimaryClient(c *td.Client) {
+	primaryClient = c
+}
+
+// resolveClientFor returns the *td.Client for botID (the primary bot or a
+// currently-running clone), or nil if it can't be resolved.
+func resolveClientFor(botID int64) *td.Client {
+	if primaryClient != nil && primaryClient.Me != nil && primaryClient.Me.Id == botID {
+		return primaryClient
+	}
+	if clone.Instance != nil {
+		if c, ok := clone.Instance.Get(botID); ok {
+			return c
+		}
+	}
+	return nil
+}
 
 type chatKey struct {
 	BotID  int64
