@@ -29,15 +29,20 @@ type CustomButton struct {
 
 // Clone represents a single clone-bot registration.
 // _id is the Telegram bot user ID (numeric part of the token).
+//
+// Numeric fields use the ",truncate" bson tag so a doc that ever had one of
+// these written as a BSON double (e.g. a manually inserted test doc via
+// mongosh, where number literals default to double) still decodes instead
+// of erroring out — which otherwise breaks RestoreAll for every clone.
 type Clone struct {
-	ID            int64          `bson:"_id"`
+	ID            int64          `bson:"_id,truncate"`
 	Token         string         `bson:"token"`
-	OwnerID       int64          `bson:"owner_id"`
+	OwnerID       int64          `bson:"owner_id,truncate"`
 	Username      string         `bson:"username"`
 	Name          string         `bson:"name"`
 	Active        bool           `bson:"active"`
-	CreatedAt     int64          `bson:"created_at"`
-	LoggerID      int64          `bson:"logger_id"`
+	CreatedAt     int64          `bson:"created_at,truncate"`
+	LoggerID      int64          `bson:"logger_id,truncate"`
 	LoggerEnabled bool           `bson:"logger_enabled"`
 	StartImg      string         `bson:"start_img"`
 	CustomButtons []CustomButton `bson:"custom_buttons"`
