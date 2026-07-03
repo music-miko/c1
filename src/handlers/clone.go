@@ -318,7 +318,7 @@ func cloneCallbackHandler(c *td.Client, cb *td.UpdateNewCallbackQuery) error {
 
 	switch fields[0] {
 	case "clone_close":
-		_, _ = c.DeleteMessages(cb.ChatId, []int64{cb.MessageId}, &td.DeleteMessagesOpts{Revoke: true})
+		_ = c.DeleteMessages(cb.ChatId, []int64{cb.MessageId}, &td.DeleteMessagesOpts{Revoke: true})
 
 	case "clone_del":
 		if len(fields) < 2 {

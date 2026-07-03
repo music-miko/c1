@@ -108,7 +108,7 @@ func editCallbackHandler(c *td.Client, cb *td.UpdateNewCallbackQuery) error {
 	switch {
 	case data == "cedit_close":
 		setEditState(userID, editStepNone)
-		_, _ = c.DeleteMessages(cb.ChatId, []int64{cb.MessageId}, &td.DeleteMessagesOpts{Revoke: true})
+		_ = c.DeleteMessages(cb.ChatId, []int64{cb.MessageId}, &td.DeleteMessagesOpts{Revoke: true})
 
 	case data == "cedit_back":
 		setEditState(userID, editStepNone)
