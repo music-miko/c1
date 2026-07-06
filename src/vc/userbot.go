@@ -125,8 +125,7 @@ func (c *TelegramCalls) checkUserStats(bot *td.Client, chatID int64, call *Assis
 
 	member, err := bot.GetChatMember(chatID, td.MessageSenderUser{UserId: userID})
 	if err != nil {
-		errStr := err.Error()
-		if strings.Contains(errStr, "USER_NOT_PARTICIPANT") {
+		if isNotParticipantError(err.Error()) {
 			c.UpdateMembership(chatID, userID, &td.ChatMemberStatusLeft{})
 			return &td.ChatMemberStatusLeft{}, nil
 		}
@@ -136,6 +135,22 @@ func (c *TelegramCalls) checkUserStats(bot *td.Client, chatID int64, call *Assis
 
 	c.UpdateMembership(chatID, userID, member.Status)
 	return member.Status, nil
+}
+
+// isNotParticipantError reports whether err means "this user isn't a member
+// of the chat" rather than a genuine failure. TDLib doesn't return one
+// consistent string for this — depending on chat type and context it can
+// surface as the raw MTProto USER_NOT_PARTICIPANT, or as TDLib's own
+// "Member not found" / PARTICIPANT_ID_INVALID wording for the same
+// condition. Treating only one of these as "not a participant" causes the
+// other two to hard-fail instead of correctly triggering an auto-join.
+func isNotParticipantError(errMsg string) bool {
+	for _, needle := range []string{"USER_NOT_PARTICIPANT", "Member not found", "PARTICIPANT_ID_INVALID"} {
+		if strings.Contains(errMsg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // joinUb joins the assistant to chatID via an ChatInviteLink link.
