@@ -28,7 +28,7 @@ func activeVcHandler(c *td.Client, m *td.Message) error {
 		return td.EndGroups
 	}
 
-	activeChats := cache.ChatCache.GetActiveChats()
+	activeChats := cache.ChatCache.GetActiveChatsFor(c.Me.Id)
 	if len(activeChats) == 0 {
 		_, err := m.ReplyText(c, "No active chats found.", nil)
 		return err
@@ -38,8 +38,8 @@ func activeVcHandler(c *td.Client, m *td.Message) error {
 	sb.WriteString(fmt.Sprintf("🎵 <b>Active Voice Chats</b> (%d):\n\n", len(activeChats)))
 
 	for _, chatID := range activeChats {
-		queueLength := cache.ChatCache.GetQueueLength(chatID)
-		currentSong := cache.ChatCache.GetPlayingTrack(chatID)
+		queueLength := cache.ChatCache.GetQueueLengthFor(c.Me.Id, chatID)
+		currentSong := cache.ChatCache.GetPlayingTrackFor(c.Me.Id, chatID)
 
 		var songInfo string
 		if currentSong != nil {

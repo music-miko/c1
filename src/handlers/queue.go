@@ -35,13 +35,13 @@ func queueHandler(c *td.Client, m *td.Message) error {
 		return nil
 	}
 
-	queue := cache.ChatCache.GetQueue(chatID)
+	queue := cache.ChatCache.GetQueueFor(c.Me.Id, chatID)
 	if len(queue) == 0 {
 		_, _ = m.ReplyText(c, "The queue is empty.", nil)
 		return nil
 	}
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, _ = m.ReplyText(c, "The bot is not streaming in the video chat.", nil)
 		return nil
 	}

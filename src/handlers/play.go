@@ -49,7 +49,7 @@ func vPlayHandler(c *td.Client, m *td.Message) error {
 func handlePlay(c *td.Client, m *td.Message, isVideo bool) error {
 	chatID := m.ChatId
 
-	if queueLen := cache.ChatCache.GetQueueLength(chatID); queueLen > 10 {
+	if queueLen := cache.ChatCache.GetQueueLengthFor(c.Me.Id, chatID); queueLen > 10 {
 		_, _ = m.ReplyText(c, "Queue is full (max 10 tracks). Use /end to clear.", nil)
 		return td.EndGroups
 	}
@@ -59,6 +59,7 @@ func handlePlay(c *td.Client, m *td.Message, isVideo bool) error {
 	url := getUrl(c, m, isReply)
 
 	rMsg := m
+	dlBot := c
 	var err error
 	if isReply && args == "" && url == "" {
 		r, err := m.GetRepliedMessage(c)
@@ -92,7 +93,14 @@ func handlePlay(c *td.Client, m *td.Message, isVideo bool) error {
 	}
 
 	if match := utils.TelegramMessageRegex.FindStringSubmatch(input); match != nil {
-		rMsg, err = utils.GetMessage(c, input)
+		// Message links must be resolved (and later downloaded) via the
+		// main/dedicated download bot, not the requesting client — a clone
+		// typically isn't a member of the source chat, so resolving via its
+		// own client fails with "failed to get message link info".
+		if dl.DlBot != nil {
+			dlBot = dl.DlBot
+		}
+		rMsg, err = utils.GetMessage(dlBot, input)
 		if err != nil {
 			c.Logger.Warn("failed to parse message", "error", err.Error())
 			_, err = m.ReplyText(c, "Invalid Telegram link.", nil)
@@ -122,7 +130,7 @@ func handlePlay(c *td.Client, m *td.Message, isVideo bool) error {
 	}
 
 	if isReply && isValidMedia(rMsg) {
-		return handleMedia(c, m, updater, rMsg, chatID, isVideo)
+		return handleMedia(c, dlBot, m, updater, rMsg, chatID, isVideo)
 	}
 
 	wrapper := dl.NewDownloaderWrapper(input)
@@ -150,7 +158,12 @@ func handlePlay(c *td.Client, m *td.Message, isVideo bool) error {
 }
 
 // handleMedia handles playing media from a message.
-func handleMedia(c *td.Client, m *td.Message, updater *td.Message, dlMsg *td.Message, chatId int64, isVideo bool) error {
+// dlBot is the client that resolved dlMsg (the requesting client c for a
+// reply, or the main/dedicated download bot for a t.me link) — file
+// operations (GetLink/Download) must use that SAME client, since a TDLib
+// message's file reference belongs to the session that fetched it and
+// won't resolve correctly through a different client.
+func handleMedia(c *td.Client, dlBot *td.Client, m *td.Message, updater *td.Message, dlMsg *td.Message, chatId int64, isVideo bool) error {
 	file, fileName := getFile(dlMsg)
 	if file == nil {
 		_, err := updater.EditText(c, "No valid media found in the message.", nil)
@@ -166,13 +179,13 @@ func handleMedia(c *td.Client, m *td.Message, updater *td.Message, dlMsg *td.Mes
 	}
 
 	fileId := dlMsg.RemoteFileID()
-	if _track := cache.ChatCache.GetTrackIfExists(chatId, fileId); _track != nil {
+	if _track := cache.ChatCache.GetTrackIfExistsFor(c.Me.Id, chatId, fileId); _track != nil {
 		_, err := updater.EditText(c, "Track already in queue or playing.", nil)
 		return err
 	}
 
 	dur := utils.GetFileDur(dlMsg)
-	link, err := dlMsg.GetLink(c)
+	link, err := dlMsg.GetLink(dlBot)
 	if err != nil {
 		c.Logger.Warn("Failed to get file link", "error", err)
 		link.Link = ""
@@ -183,7 +196,7 @@ func handleMedia(c *td.Client, m *td.Message, updater *td.Message, dlMsg *td.Mes
 		Duration: dur, IsVideo: isVideo, Platform: utils.Telegram,
 	}
 
-	qLen := cache.ChatCache.AddSong(chatId, &saveCache)
+	qLen := cache.ChatCache.AddSongFor(c.Me.Id, chatId, &saveCache)
 	if qLen > 1 {
 		escURL := html.EscapeString(saveCache.URL)
 		escName := html.EscapeString(saveCache.Name)
@@ -196,9 +209,9 @@ func handleMedia(c *td.Client, m *td.Message, updater *td.Message, dlMsg *td.Mes
 		return err
 	}
 
-	file, err = dlMsg.Download(c, 1, 0, 0, true)
+	file, err = dlMsg.Download(dlBot, 1, 0, 0, true)
 	if err != nil {
-		cache.ChatCache.RemoveCurrentSong(chatId)
+		cache.ChatCache.RemoveCurrentSongFor(c.Me.Id, chatId)
 		_, err = updater.EditText(c, fmt.Sprintf("Download failed: %s", err.Error()), nil)
 		return err
 	}
@@ -212,7 +225,7 @@ func handleMedia(c *td.Client, m *td.Message, updater *td.Message, dlMsg *td.Mes
 	saveCache.FilePath = filePath
 
 	if err = vc.Calls.PlayMediaFor(c.Me.Id, c, chatId, saveCache.FilePath, saveCache.IsVideo, ""); err != nil {
-		cache.ChatCache.RemoveCurrentSong(chatId)
+		cache.ChatCache.RemoveCurrentSongFor(c.Me.Id, chatId)
 		_, err = updater.EditText(c, err.Error(), &td.EditTextMessageOpts{ParseMode: "HTML", DisableWebPagePreview: true})
 		return err
 	}
@@ -249,7 +262,7 @@ func handleTextSearch(c *td.Client, m *td.Message, updater *td.Message, wrapper 
 	}
 
 	song := searchResult.Results[0]
-	if _track := cache.ChatCache.GetTrackIfExists(chatId, song.Id); _track != nil {
+	if _track := cache.ChatCache.GetTrackIfExistsFor(c.Me.Id, chatId, song.Id); _track != nil {
 		_, err := updater.EditText(c, "Track already in queue or playing.", nil)
 		return err
 	}
@@ -261,7 +274,7 @@ func handleTextSearch(c *td.Client, m *td.Message, updater *td.Message, wrapper 
 func handleUrl(c *td.Client, m *td.Message, updater *td.Message, trackInfo utils.PlatformTracks, chatId int64, isVideo bool) error {
 	if len(trackInfo.Results) == 1 {
 		track := trackInfo.Results[0]
-		if _track := cache.ChatCache.GetTrackIfExists(chatId, track.Id); _track != nil {
+		if _track := cache.ChatCache.GetTrackIfExistsFor(c.Me.Id, chatId, track.Id); _track != nil {
 			_, err := updater.EditText(c, "Track already in queue or playing.", nil)
 			return err
 		}
@@ -284,7 +297,7 @@ func handleSingleTrack(c *td.Client, m *td.Message, updater *td.Message, song ut
 		IsVideo: isVideo, Platform: song.Platform,
 	}
 
-	qLen := cache.ChatCache.AddSong(chatId, &saveCache)
+	qLen := cache.ChatCache.AddSongFor(c.Me.Id, chatId, &saveCache)
 	if qLen > 1 {
 		escURL := html.EscapeString(saveCache.URL)
 		escName := html.EscapeString(saveCache.Name)
@@ -301,7 +314,7 @@ func handleSingleTrack(c *td.Client, m *td.Message, updater *td.Message, song ut
 	if saveCache.FilePath == "" {
 		dlResult, err := dl.DownloadCachedTrack(&saveCache, c)
 		if err != nil {
-			cache.ChatCache.RemoveCurrentSong(chatId)
+			cache.ChatCache.RemoveCurrentSongFor(c.Me.Id, chatId)
 			_, err = updater.EditText(c, fmt.Sprintf("Download failed: %s", err.Error()), nil)
 			return err
 		}
@@ -310,7 +323,7 @@ func handleSingleTrack(c *td.Client, m *td.Message, updater *td.Message, song ut
 	}
 
 	if err := vc.Calls.PlayMediaFor(c.Me.Id, c, chatId, saveCache.FilePath, saveCache.IsVideo, ""); err != nil {
-		cache.ChatCache.RemoveCurrentSong(chatId)
+		cache.ChatCache.RemoveCurrentSongFor(c.Me.Id, chatId)
 		_, err = updater.EditText(c, err.Error(), &td.EditTextMessageOpts{ParseMode: "HTML", DisableWebPagePreview: true})
 		return err
 	}
@@ -375,7 +388,7 @@ func handleMultipleTracks(c *td.Client, m *td.Message, updater *td.Message, trac
 		return err
 	}
 
-	qLenAfter := cache.ChatCache.AddSongs(chatId, tracksToAdd)
+	qLenAfter := cache.ChatCache.AddSongsFor(c.Me.Id, chatId, tracksToAdd)
 	startLen := qLenAfter - len(tracksToAdd)
 
 	if startLen == 0 {

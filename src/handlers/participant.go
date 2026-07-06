@@ -181,7 +181,7 @@ func onJoin(
 func onLeave(client *gotdbot.Client, chatID, userID, assistantID int64) error {
 	client.Logger.Info("User left chat", "user_id", userID, "chat_id", chatID)
 	if userID == assistantID {
-		cache.ChatCache.ClearChat(chatID)
+		cache.ChatCache.ClearChatFor(client.Me.Id, chatID)
 	}
 
 	updateMembershipCache(chatID, userID, &gotdbot.ChatMemberStatusLeft{})
@@ -200,7 +200,7 @@ func onBan(client *gotdbot.Client, chatID, userID, assistantID int64) error {
 	updateMembershipCache(chatID, userID, &gotdbot.ChatMemberStatusBanned{})
 
 	if userID == assistantID {
-		cache.ChatCache.ClearChat(chatID)
+		cache.ChatCache.ClearChatFor(client.Me.Id, chatID)
 		msg := fmt.Sprintf(
 			"🚫 My assistant has been banned from this chat.\n\n"+
 				"If this was a mistake, please unban <code>%d</code>.",
@@ -290,8 +290,21 @@ func editableUsername(chat *gotdbot.Supergroup) string {
 }
 
 func sendJoinLog(client *gotdbot.Client, chatID int64, _ *gotdbot.Supergroup) {
+	loggerID := config.LoggerId
+
+	if reg, _ := db.Instance.GetClone(client.Me.Id); reg != nil {
+		// This is a clone bot, not the primary bot — it isn't a member of
+		// the main bot's log channel, so sending there always fails with
+		// "Chat not found". Use the clone's own configured logger instead,
+		// or skip logging entirely if the clone owner hasn't set one up.
+		if !reg.LoggerEnabled || reg.LoggerID == 0 {
+			return
+		}
+		loggerID = reg.LoggerID
+	}
+
 	text := fmt.Sprintf("<b>🤖 Bot Joined a New Chat</b>\n📌 <b>Chat ID:</b> <code>%d</code>", chatID)
-	if _, err := client.SendTextMessage(config.LoggerId, text, &gotdbot.SendTextMessageOpts{
+	if _, err := client.SendTextMessage(loggerID, text, &gotdbot.SendTextMessageOpts{
 		ParseMode: "HTML",
 	}); err != nil {
 		client.Logger.Warn("Failed to send join log", "error", err)

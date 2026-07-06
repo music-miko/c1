@@ -28,7 +28,7 @@ func muteHandler(c *td.Client, m *td.Message) error {
 	}
 
 	chatID := m.ChatId
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, err := m.ReplyText(c, "There is no active playback in the video chat.", nil)
 		return err
 	}
@@ -52,7 +52,7 @@ func unmuteHandler(c *td.Client, m *td.Message) error {
 	}
 
 	chatID := m.ChatId
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, err := m.ReplyText(c, "There is no active playback in the video chat.", nil)
 		return err
 	}

@@ -39,14 +39,14 @@ func playCallbackHandler(c *td.Client, cb *td.UpdateNewCallbackQuery) error {
 		user = &td.User{FirstName: "Unknown", Id: cb.SenderUserId}
 	}
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		text := "There is no active playback."
 		_ = cb.Answer(c, 0, false, text, "")
 		_, _ = cb.EditMessageText(c, text, &td.EditTextMessageOpts{ReplyMarkup: core.ControlButtons(""), ParseMode: "HTML", DisableWebPagePreview: true})
 		return nil
 	}
 
-	currentTrack := cache.ChatCache.GetPlayingTrack(chatID)
+	currentTrack := cache.ChatCache.GetPlayingTrackFor(c.Me.Id, chatID)
 	if currentTrack == nil {
 		_ = cb.Answer(c, 0, false, "There is no active playback.", "")
 		_, _ = cb.EditMessageText(c, "There is no active playback.", &td.EditTextMessageOpts{ReplyMarkup: core.ControlButtons(""), ParseMode: "HTML", DisableWebPagePreview: true})

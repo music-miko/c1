@@ -285,6 +285,7 @@ func (c *TelegramCalls) StopFor(botID, chatID int64, banned bool) error {
 	if err != nil {
 		return err
 	}
+	cache.ChatCache.ClearChatFor(botID, chatID)
 	err = call.stopCall(chatID, banned)
 	c.markInactive(botID, chatID)
 	c.ReleaseFor(botID, chatID)
@@ -368,20 +369,20 @@ func (c *TelegramCalls) SeekStreamFor(botID int64, bot *td.Client, chatID int64,
 // playing through that SAME bot's dedicated assistant rather than
 // re-triggering the single-key assignment path.
 func (c *TelegramCalls) PlayNextFor(botID int64, bot *td.Client, chatID int64) error {
-	loop := cache.ChatCache.GetLoopCount(chatID)
+	loop := cache.ChatCache.GetLoopCountFor(botID, chatID)
 	if loop > 0 {
-		cache.ChatCache.SetLoopCount(chatID, loop-1)
-		if current := cache.ChatCache.GetPlayingTrack(chatID); current != nil {
+		cache.ChatCache.SetLoopCountFor(botID, chatID, loop-1)
+		if current := cache.ChatCache.GetPlayingTrackFor(botID, chatID); current != nil {
 			return c.playSongFor(botID, bot, chatID, current)
 		}
 	}
 
-	if next := cache.ChatCache.GetUpcomingTrack(chatID); next != nil {
-		cache.ChatCache.RemoveCurrentSong(chatID)
+	if next := cache.ChatCache.GetUpcomingTrackFor(botID, chatID); next != nil {
+		cache.ChatCache.RemoveCurrentSongFor(botID, chatID)
 		return c.playSongFor(botID, bot, chatID, next)
 	}
 
-	cache.ChatCache.RemoveCurrentSong(chatID)
+	cache.ChatCache.RemoveCurrentSongFor(botID, chatID)
 	c.markInactive(botID, chatID)
 	c.ReleaseFor(botID, chatID)
 	_, _ = bot.SendTextMessage(chatID, "🎵 Queue finished. Add more songs with /play.", nil)
@@ -425,6 +426,36 @@ func (c *TelegramCalls) playSongFor(botID int64, bot *td.Client, chatID int64, s
 		slog.Info("[playSongFor] Failed to edit message", "error", err)
 	}
 	return nil
+}
+
+// ChangeSpeedFor is the bot-aware equivalent of ChangeSpeed.
+func (c *TelegramCalls) ChangeSpeedFor(botID int64, bot *td.Client, chatID int64, speed float64) error {
+	if speed < 0.5 || speed > 4.0 {
+		return errors.New("invalid speed. Value must be between 0.5 and 4.0")
+	}
+
+	playingSong := cache.ChatCache.GetPlayingTrackFor(botID, chatID)
+	if playingSong == nil {
+		return errors.New("the bot isn't streaming in the video chat")
+	}
+
+	videoPTS := 1 / speed
+
+	var audioFilterBuilder strings.Builder
+	remaining := speed
+	for remaining > 2.0 {
+		audioFilterBuilder.WriteString("atempo=2.0,")
+		remaining /= 2.0
+	}
+	for remaining < 0.5 {
+		audioFilterBuilder.WriteString("atempo=0.5,")
+		remaining /= 0.5
+	}
+	audioFilterBuilder.WriteString(fmt.Sprintf("atempo=%f", remaining))
+	audioFilter := audioFilterBuilder.String()
+
+	ffmpegFilters := fmt.Sprintf("-filter:v setpts=%f*PTS -filter:a %s", videoPTS, audioFilter)
+	return c.PlayMediaFor(botID, bot, chatID, playingSong.FilePath, playingSong.IsVideo, ffmpegFilters)
 }
 
 func containsAny(s string, substrs ...string) bool {

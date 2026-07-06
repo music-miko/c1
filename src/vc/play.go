@@ -105,7 +105,7 @@ func (c *TelegramCalls) playMedia(bot *td.Client, chatID int64, filePath string,
 	}
 
 	if err := c.joinAssistant(bot, chatID, call, index); err != nil {
-		cache.ChatCache.ClearChat(chatID)
+		cache.ChatCache.ClearChatFor(bot.Me.Id, chatID)
 		return err
 	}
 
@@ -113,12 +113,12 @@ func (c *TelegramCalls) playMedia(bot *td.Client, chatID int64, filePath string,
 
 	mediaDesc := getMediaDescription(filePath, video, ffmpegParameters)
 	if err := call.Play(context.Background(), chatID, mediaDesc); err != nil {
-		cache.ChatCache.ClearChat(chatID)
+		cache.ChatCache.ClearChatFor(bot.Me.Id, chatID)
 		return err
 	}
 
 	if db.Instance.GetLoggerStatus() {
-		go sendLogger(bot, chatID, cache.ChatCache.GetPlayingTrack(chatID))
+		go sendLogger(bot, chatID, cache.ChatCache.GetPlayingTrackFor(bot.Me.Id, chatID))
 	}
 
 	return nil

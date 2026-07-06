@@ -99,12 +99,12 @@ func (c *TelegramCalls) leaveAssistantDialogs(ctx *Assistant) (int, error) {
 			continue
 		}
 
-		if cache.ChatCache.IsActive(chatID) {
+		if cache.ChatCache.IsActiveAny(chatID) {
 			continue
 		}
 
 		for {
-			if cache.ChatCache.IsActive(chatID) {
+			if cache.ChatCache.IsActiveAny(chatID) {
 				break
 			}
 

@@ -25,7 +25,7 @@ func pauseHandler(c *td.Client, m *td.Message) error {
 
 	chatID := m.ChatId
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, _ = m.ReplyText(c, "There is no active playback in the video chat.", nil)
 		return nil
 	}
@@ -51,7 +51,7 @@ func resumeHandler(c *td.Client, m *td.Message) error {
 		return nil
 	}
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, _ = m.ReplyText(c, "There is no active playback in the video chat.", nil)
 		return nil
 	}

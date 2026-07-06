@@ -21,6 +21,11 @@ func DownloadCachedTrack(cached *utils.CachedTrack, bot *td.Client) (string, err
 		return cached.URL, nil
 	}
 
+	// Telegram remote file IDs are scoped to whichever account fetched
+	// them (per TDLib's own docs: "the file can be used only if it is
+	// still accessible to the user") — so re-downloading a cached
+	// Telegram-sourced track must use the SAME bot that originally
+	// resolved it, not necessarily the main/DL bot.
 	if cached.Platform == utils.Telegram {
 		return downloadTelegramFile(cached, bot)
 	}

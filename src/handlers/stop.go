@@ -25,7 +25,7 @@ func stopHandler(c *td.Client, m *td.Message) error {
 
 	chatID := m.ChatId
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, _ = m.ReplyText(c, "The bot isn't streaming in the video chat.", nil)
 		return nil
 	}

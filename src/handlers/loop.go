@@ -24,7 +24,7 @@ func loopHandler(c *td.Client, m *td.Message) error {
 
 	chatID := m.ChatId
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, err := m.ReplyText(c, "There is no active playback in the video chat.", nil)
 		return err
 	}
@@ -46,7 +46,7 @@ func loopHandler(c *td.Client, m *td.Message) error {
 		return err
 	}
 
-	cache.ChatCache.SetLoopCount(chatID, argsInt)
+	cache.ChatCache.SetLoopCountFor(c.Me.Id, chatID, argsInt)
 
 	var action string
 	if argsInt == 0 {

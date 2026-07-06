@@ -10,6 +10,7 @@ package vc
 
 import (
 	"ashokshau/tgmusic/config"
+	"ashokshau/tgmusic/src/core/db"
 	"ashokshau/tgmusic/src/utils"
 	"fmt"
 
@@ -19,7 +20,21 @@ import (
 // sendLogger sends a formatted log message to the designated logger chat.
 // It includes details about the song being played, such as its title, duration, and the user who requested it.
 func sendLogger(client *td.Client, chatID int64, song *utils.CachedTrack) {
-	if chatID == 0 || song == nil || chatID == config.LoggerId {
+	if chatID == 0 || song == nil {
+		return
+	}
+
+	loggerID := config.LoggerId
+	if reg, _ := db.Instance.GetClone(client.Me.Id); reg != nil {
+		// This is a clone bot — it isn't a member of the main bot's log
+		// channel, so sending there always fails. Use its own configured
+		// logger, or skip entirely if the clone owner hasn't set one up.
+		if !reg.LoggerEnabled || reg.LoggerID == 0 {
+			return
+		}
+		loggerID = reg.LoggerID
+	}
+	if chatID == loggerID {
 		return
 	}
 
@@ -34,7 +49,7 @@ func sendLogger(client *td.Client, chatID int64, song *utils.CachedTrack) {
 		song.IsVideo,
 	)
 
-	_, err := client.SendTextMessage(config.LoggerId, text, &td.SendTextMessageOpts{DisableWebPagePreview: true, ParseMode: "HTML"})
+	_, err := client.SendTextMessage(loggerID, text, &td.SendTextMessageOpts{DisableWebPagePreview: true, ParseMode: "HTML"})
 	if err != nil {
 		logger.Warn("Failed to send the message", "error", err)
 	}

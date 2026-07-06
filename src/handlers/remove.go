@@ -25,12 +25,12 @@ func removeHandler(c *td.Client, m *td.Message) error {
 
 	chatID := m.ChatId
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, _ = m.ReplyText(c, "The bot is not streaming in the video chat.", nil)
 		return nil
 	}
 
-	queue := cache.ChatCache.GetQueue(chatID)
+	queue := cache.ChatCache.GetQueueFor(c.Me.Id, chatID)
 	if len(queue) == 0 {
 		_, _ = m.ReplyText(c, "The queue is currently empty.", nil)
 		return nil
@@ -53,7 +53,7 @@ func removeHandler(c *td.Client, m *td.Message) error {
 		return nil
 	}
 
-	cache.ChatCache.RemoveTrack(chatID, trackNum)
+	cache.ChatCache.RemoveTrackFor(c.Me.Id, chatID, trackNum)
 	_, err = m.ReplyText(c, fmt.Sprintf("Track #%d has been removed by %s.", trackNum, firstName(c, m)), replyOpts)
 	return err
 }

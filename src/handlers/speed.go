@@ -25,12 +25,12 @@ func speedHandler(c *td.Client, m *td.Message) error {
 	}
 	chatID := m.ChatId
 
-	if !cache.ChatCache.IsActive(chatID) {
+	if !cache.ChatCache.IsActiveFor(c.Me.Id, chatID) {
 		_, err := m.ReplyText(c, "The bot is not streaming in the video chat.", nil)
 		return err
 	}
 
-	if playingSong := cache.ChatCache.GetPlayingTrack(chatID); playingSong == nil {
+	if playingSong := cache.ChatCache.GetPlayingTrackFor(c.Me.Id, chatID); playingSong == nil {
 		_, err := m.ReplyText(c, "The bot is not streaming in the video chat.", nil)
 		return err
 	}
@@ -47,7 +47,7 @@ func speedHandler(c *td.Client, m *td.Message) error {
 		return nil
 	}
 
-	if err = vc.Calls.ChangeSpeed(c, chatID, speed); err != nil {
+	if err = vc.Calls.ChangeSpeedFor(c.Me.Id, c, chatID, speed); err != nil {
 		_, _ = m.ReplyText(c, fmt.Sprintf("An error occurred while changing the speed: %s", err.Error()), replyOpts)
 		return nil
 	}

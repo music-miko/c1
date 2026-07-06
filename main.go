@@ -75,6 +75,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Downloads (Telegram-message-link resolution, media fetching, etc.)
+	// should always go through the primary bot — or a dedicated DL bot, if
+	// configured — never through a clone's own client, which typically
+	// isn't a member of the source chat. Default dl.DlBot to the primary
+	// bot right away so it's never nil, then optionally upgrade it below.
+	dl.DlBot = client
+
 	if config.DlBotToken != "" {
 		dlClientConfig := gotdbot.DefaultClientConfig()
 		dlClientConfig.AutoRetry = &gotdbot.AutoRetry{
@@ -86,7 +93,6 @@ func main() {
 		dlClient, err := manager.RegisterClient(config.ApiId, config.ApiHash, config.DlBotToken, dlClientConfig)
 		if err != nil {
 			slog.Error("manager.RegisterClient (DL) error", "error", err)
-			dl.DlBot = client
 		} else {
 			dl.DlBot = dlClient
 			dlClient.Logger.Info("Download bot registered successfully")
