@@ -270,9 +270,22 @@ func editInputHandler(c *td.Client, m *td.Message) error {
 			}
 			loggerID = id
 		}
+
+		// Verify the bot can actually reach this chat before saving —
+		// otherwise every future log attempt fails silently in the
+		// background instead of telling the owner right away.
+		if _, err := c.SendTextMessage(loggerID, fmt.Sprintf("✅ Logger activated for @%s.", c.Me.Usernames.EditableUsername), nil); err != nil {
+			_, _ = m.ReplyText(c, fmt.Sprintf(
+				"<b>Couldn't send a message to that chat.</b>\n\nMake sure:\n• The chat ID is correct\n• This bot (@%s) has been added to that chat\n• This bot can post there\n\nError: <code>%s</code>\n\nTry again, or /edit to cancel.",
+				c.Me.Usernames.EditableUsername, err.Error(),
+			), &td.SendTextMessageOpts{ParseMode: "HTML"})
+			return td.EndGroups
+		}
+
 		_ = db.Instance.SetCloneLogger(c.Me.Id, loggerID)
+		_ = db.Instance.SetCloneLoggerEnabled(c.Me.Id, true)
 		setEditState(userID, editStepNone)
-		_, _ = m.ReplyText(c, fmt.Sprintf("Logger channel set to <code>%d</code>.", loggerID), &td.SendTextMessageOpts{ParseMode: "HTML", ReplyMarkup: editMainMenu()})
+		_, _ = m.ReplyText(c, fmt.Sprintf("✅ Logger set to <code>%d</code>. Logging is now enabled.", loggerID), &td.SendTextMessageOpts{ParseMode: "HTML", ReplyMarkup: editMainMenu()})
 		return td.EndGroups
 
 	case editStepStartImg:
