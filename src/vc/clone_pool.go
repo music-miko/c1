@@ -107,6 +107,16 @@ var ErrAllAssistantsBusy = errors.New(
 // AssignFor returns the assistant index this bot should use for this chat,
 // reusing a prior assignment if one exists, or claiming a free one.
 func (c *TelegramCalls) AssignFor(botID, chatID int64) (int, error) {
+	return c.assignForExcluding(botID, chatID, nil)
+}
+
+// assignForExcluding is AssignFor but skips any index in exclude — used by
+// PlayMediaFor's retry loop so a failed attempt actually moves on to a
+// different assistant instead of looping back to the same one every time
+// (which otherwise happens because the legacy single-key path below returns
+// a deterministic, DB-persisted index for a given chatID regardless of
+// which bot is asking).
+func (c *TelegramCalls) assignForExcluding(botID, chatID int64, exclude map[int]bool) (int, error) {
 	c.mu.RLock()
 	total := len(c.assistants)
 	c.mu.RUnlock()
@@ -120,14 +130,15 @@ func (c *TelegramCalls) AssignFor(botID, chatID int64) (int, error) {
 
 	key := chatKey{BotID: botID, ChatID: chatID}
 
-	if idx, ok := pool.assignment[key]; ok && idx < total {
+	if idx, ok := pool.assignment[key]; ok && idx < total && !exclude[idx] {
 		pool.owner[ownerKey{Index: idx, ChatID: chatID}] = botID
 		return idx, nil
 	}
 
 	// Prefer the assistant already picked for this chat by the "main"
-	// single-key path (getClientIndex), if it isn't claimed by someone else.
-	if idx, err := c.getClientIndex(chatID); err == nil {
+	// single-key path (getClientIndex), if it isn't claimed by someone else
+	// and hasn't already failed in this attempt.
+	if idx, err := c.getClientIndex(chatID); err == nil && !exclude[idx] {
 		if o, taken := pool.owner[ownerKey{Index: idx, ChatID: chatID}]; !taken || o == botID {
 			pool.assignment[key] = idx
 			pool.owner[ownerKey{Index: idx, ChatID: chatID}] = botID
@@ -135,9 +146,13 @@ func (c *TelegramCalls) AssignFor(botID, chatID int64) (int, error) {
 		}
 	}
 
-	// Least-loaded free assistant: not claimed by a DIFFERENT bot in this chat.
+	// Least-loaded free assistant: not claimed by a DIFFERENT bot in this
+	// chat, and not already tried and failed this call.
 	best, bestLoad := -1, -1
 	for idx := 0; idx < total; idx++ {
+		if exclude[idx] {
+			continue
+		}
 		if o, taken := pool.owner[ownerKey{Index: idx, ChatID: chatID}]; taken && o != botID {
 			continue
 		}
@@ -148,6 +163,9 @@ func (c *TelegramCalls) AssignFor(botID, chatID int64) (int, error) {
 	}
 
 	if best == -1 {
+		if len(exclude) > 0 {
+			return -1, errors.New("no more assistants left to try in this chat")
+		}
 		return -1, ErrAllAssistantsBusy
 	}
 
@@ -227,15 +245,23 @@ func (c *TelegramCalls) GetGroupAssistantFor(botID, chatID int64) (*Assistant, i
 // assistant. This is what lets the main bot and any number of clones stream
 // independently in the same chat at once.
 func (c *TelegramCalls) PlayMediaFor(botID int64, bot *td.Client, chatID int64, filePath string, video bool, ffmpegParameters string) error {
-	tried := map[int]bool{}
+	c.mu.RLock()
+	total := len(c.assistants)
+	c.mu.RUnlock()
+	if total == 0 {
+		return errors.New("no assistants are configured")
+	}
 
-	for attempt := 0; attempt < 3; attempt++ {
-		idx, err := c.AssignFor(botID, chatID)
+	tried := make(map[int]bool, total)
+	var lastErr error
+
+	for attempt := 0; attempt < total; attempt++ {
+		idx, err := c.assignForExcluding(botID, chatID, tried)
 		if err != nil {
+			if lastErr != nil {
+				return fmt.Errorf("%w (last join error: %v)", err, lastErr)
+			}
 			return err
-		}
-		if tried[idx] {
-			break
 		}
 		tried[idx] = true
 
@@ -251,6 +277,8 @@ func (c *TelegramCalls) PlayMediaFor(botID int64, bot *td.Client, chatID int64, 
 			c.markActive(botID, chatID)
 			return nil
 		}
+		lastErr = err
+		slog.Warn("[clone_pool] assistant failed to join, trying another", "bot_id", botID, "chat_id", chatID, "assistant_index", idx, "error", err)
 
 		if classifyError(err) == errFatal {
 			return fatalMessage(err)
@@ -264,6 +292,9 @@ func (c *TelegramCalls) PlayMediaFor(botID int64, bot *td.Client, chatID int64, 
 		pool.mu.Unlock()
 	}
 
+	if lastErr != nil {
+		return fmt.Errorf("playback failed after trying every available assistant: %w", lastErr)
+	}
 	return errors.New("playback failed: no assistant could join this chat")
 }
 
